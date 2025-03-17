@@ -102,9 +102,9 @@ create_raid1() {
 
   if confirm "This operation will ERASE all data on ${device1} and ${device2} (if provided). Are you sure?"; then
     if [ -n "$device2" ]; then
-      mdadm --create /dev/md1 -n2 -l1 "$device1" "$device2" --force
+      mdadm --create /dev/md1 -n2 -l1 "$device1" "$device2" --metadata=1.2 --force
     else
-      mdadm --create /dev/md1 -n1 -l1 "$device1" --force
+      mdadm --create /dev/md1 -n1 -l1 "$device1" --metadata=1.2 --force
     fi
 
     if [ $? -eq 0 ]; then
@@ -118,6 +118,51 @@ create_raid1() {
     msg "${YELLOW}" "RAID1 creation cancelled."
     return 1
   fi
+}
+
+# Function to add a drive to an existing RAID1 array
+add_drive_to_raid1() {
+  msg "${YELLOW}" "Adding a drive to RAID1 array..."
+
+  if ! device_exists "/dev/md1"; then
+    msg "${RED}" "Error: RAID device /dev/md1 does not exist."
+    return 1
+  fi
+
+  echo "Available drives:"
+  list_available_drives
+  available_drives=($(list_available_drives))
+
+  if [ ${#available_drives[@]} -eq 0 ]; then
+    msg "${RED}" "No available drives found."
+    return 1
+  fi
+
+  read -r -p "Enter the device to add (e.g., /dev/sdd): " device
+
+  # Validate device selection
+  valid=0
+  for drive in "${available_drives[@]}"; do
+    if [ "$device" = "$drive" ]; then
+      valid=1
+      break
+    fi
+  done
+  if [ "$valid" -eq 0 ]; then
+    msg "${RED}" "Error: Invalid device ${device}."
+    return 1
+  fi
+
+  mdadm /dev/md1 --add "$device"
+  if [ $? -eq 0 ]; then
+    msg "${GREEN}" "Added ${device} to /dev/md1."
+  else
+    msg "${RED}" "Error adding ${device}."
+    return 1
+  fi
+
+  msg "${GREEN}" "Added ${device} to RAID1 array. RAID will now start resyncing."
+  return 0
 }
 
 # Create LVM structure
@@ -352,9 +397,10 @@ main_menu() {
     echo ""
     echo "Choose an operation:"
     echo "1) Create RAID1 and LVM"
-    echo "2) Expand to RAID5"
-    echo "3) Remove All (DESTRUCTIVE)"
-    echo "4) Exit"
+    echo "2) Add drive to RAID1"
+    echo "3) Expand to RAID5"
+    echo "4) Remove All (DESTRUCTIVE)"
+    echo "5) Exit"
     read -r -p "Enter your choice: " choice
 
     case "$choice" in
@@ -365,12 +411,15 @@ main_menu() {
         fi
         ;;
       2)
-        expand_raid5
+        add_drive_to_raid1
         ;;
       3)
-        remove_all
+        expand_raid5
         ;;
       4)
+        remove_all
+        ;;
+      5)
         msg "${GREEN}" "Exiting."
         exit 0
         ;;
