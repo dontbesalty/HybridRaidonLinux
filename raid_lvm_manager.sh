@@ -26,6 +26,12 @@ device_exists() {
   fi
 }
 
+# Function to list available drives
+list_available_drives() {
+  lsblk -o NAME,SIZE,TYPE,MOUNTPOINT --exclude 7,11,1,2,0,259 | \
+  awk 'NR>1 && $3=="disk" && $4=="" {print "/dev/"$1}'
+}
+
 # Function to get user confirmation
 confirm() {
   read -r -p "${1} [y/N]: " response
@@ -55,17 +61,43 @@ raid_health() {
 create_raid1() {
   msg "${YELLOW}" "Creating RAID1 array..."
 
-  read -r -p "Enter the first device (e.g., /dev/sdc): " device1
-  read -r -p "Enter the second device (e.g., /dev/sdd, or leave blank for single drive): " device2
+  echo "Available drives:"
+  list_available_drives
+  available_drives=($(list_available_drives))
 
-  if ! device_exists "$device1"; then
-    msg "${RED}" "Error: Device ${device1} does not exist."
+  if [ ${#available_drives[@]} -eq 0 ]; then
+    msg "${RED}" "No available drives found."
     return 1
   fi
 
-  if [ -n "$device2" ] && ! device_exists "$device2"; then
-    msg "${RED}" "Error: Device ${device2} does not exist."
+  read -r -p "Enter the first device (e.g., /dev/sdc): " device1
+  read -r -p "Enter the second device (e.g., /dev/sdd, or leave blank for single drive): " device2
+
+  # Validate device selection
+  valid=0
+  for drive in "${available_drives[@]}"; do
+    if [ "$device1" = "$drive" ]; then
+      valid=1
+      break
+    fi
+  done
+  if [ "$valid" -eq 0 ]; then
+    msg "${RED}" "Error: Invalid device ${device1}."
     return 1
+  fi
+
+  if [ -n "$device2" ]; then
+    valid=0
+    for drive in "${available_drives[@]}"; do
+      if [ "$device2" = "$drive" ]; then
+        valid=1
+        break
+      fi
+    done
+    if [ "$valid" -eq 0 ]; then
+      msg "${RED}" "Error: Invalid device ${device2}."
+      return 1
+    fi
   fi
 
   if confirm "This operation will ERASE all data on ${device1} and ${device2} (if provided). Are you sure?"; then
@@ -153,15 +185,32 @@ create_lvm() {
 expand_raid5() {
   msg "${YELLOW}" "Expanding to RAID5..."
 
-  read -r -p "Enter the third device (e.g., /dev/sde): " device3
+  echo "Available drives:"
+  list_available_drives
+  available_drives=($(list_available_drives))
 
-  if ! device_exists "/dev/md1"; then
-    msg "${RED}" "Error: RAID device /dev/md1 does not exist."
+  if [ ${#available_drives[@]} -eq 0 ]; then
+    msg "${RED}" "No available drives found."
     return 1
   fi
 
-  if ! device_exists "$device3"; then
-    msg "${RED}" "Error: Device ${device3} does not exist."
+  read -r -p "Enter the third device (e.g., /dev/sde): " device3
+
+  # Validate device selection
+  valid=0
+  for drive in "${available_drives[@]}"; do
+    if [ "$device3" = "$drive" ]; then
+      valid=1
+      break
+    fi
+  done
+  if [ "$valid" -eq 0 ]; then
+    msg "${RED}" "Error: Invalid device ${device3}."
+    return 1
+  fi
+
+  if ! device_exists "/dev/md1"; then
+    msg "${RED}" "Error: RAID device /dev/md1 does not exist."
     return 1
   fi
 
@@ -250,9 +299,31 @@ remove_all() {
       return 1
     fi
 
-    # Zero superblock on all devices (replace /dev/sd?? with actual devices)
+    # Zero superblock on all devices
+    echo "Available drives:"
+    list_available_drives
+    available_drives=($(list_available_drives))
+
+    if [ ${#available_drives[@]} -eq 0 ]; then
+      msg "${RED}" "No available drives found."
+      return 1
+    fi
+
     read -r -p "Enter the devices to zero superblock (e.g., /dev/sdc /dev/sdd /dev/sde): " devices
     for device in $devices; do
+      # Validate device selection
+      valid=0
+      for drive in "${available_drives[@]}"; do
+        if [ "$device" = "$drive" ]; then
+          valid=1
+          break
+        fi
+      done
+      if [ "$valid" -eq 0 ]; then
+        msg "${RED}" "Error: Invalid device ${device}."
+        return 1
+      fi
+
       if device_exists "$device"; then
         mdadm --zero-superblock "$device"
         if [ $? -eq 0 ]; then
