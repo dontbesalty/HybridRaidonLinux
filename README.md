@@ -30,8 +30,12 @@ sudo ./raid_lvm_manager.sh
    - (Optional) Add second device
    - Confirm destruction
 
-2. Expand to RAID5:
-   - Select option 2 when ready
+2. Add drive to RAID1:
+   - Select option 2
+   - Enter the device to add
+
+3. Expand to RAID5:
+   - Select option 3 when ready
    - Add third device
    - Monitor expansion progress
 
